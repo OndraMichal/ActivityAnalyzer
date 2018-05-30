@@ -12,11 +12,16 @@
 ## Updated: 10/2017
 ######################################################
 
+#########
+# Time spent on kaizen (charged ie. at work)
+# 24.5.2018 8.:15h
+#########
+
 import os
 import re
 import Tkinter
 import tkFileDialog
-from subprocess import Popen, PIPE
+from subprocess import PIPE, Popen
 import openpyxl
 
 # pylint: disable=C0103, C0301, C0326
@@ -33,6 +38,7 @@ def FindFreezeFile(outFileTxt):
 def Analyze(freezeList, view, VOB, intView, project):
     w = openpyxl.load_workbook(freezeList.get())
     ws = w.get_sheet_by_name(name='SIR List')
+    # Dictionary of all ARs in SIR List {'DEV_Phx':[AR, AR,...],'DEV_FACRI':[AR, AR,...]}
     ARdict = {}
     HonFei_Facri = [] # list of all HonFei/FACRI ARs
     PVOB = VOB.get()
@@ -40,24 +46,23 @@ def Analyze(freezeList, view, VOB, intView, project):
     for row in ws.iter_rows():
         if row[0].value is None or row[3].value is None or row[5].value is  None:
             continue
-        if row[0].value == "Building" and ('Brno' not in row[3].value) and ('India' not in row[3].value) and ('C919' in row[5].value):
+        if row[0].value == "Building" and ('C919' in row[5].value) and ('Brno' not in row[3].value) and ('India' not in row[3].value):
             AR = re.search(r'C919[A-Z]\d{8}', row[5].value)
             if AR is None:
                 continue
             AR = AR.group(0)
             com = Popen(r"cleartool descr -fmt '%[stream]Xp' activity:"+AR+"@\\"+PVOB, stdout=PIPE, universal_newlines=True, creationflags=0x08000000)
-            ARvob, stderrdata = com.communicate()
-            ARvob = ARvob.strip("'")
-            if ARvob == "":
+            AR_stream, stderrdata = com.communicate()
+            AR_stream = AR_stream.strip("'")
+            if AR_stream == "":
                 # DEV_HonFei/DEV_FACRI
                 HonFei_Facri.append(AR)
-            elif ARvob in ARdict:
-                ARdict[ARvob].append(AR)
+            elif AR_stream in ARdict:
+                ARdict[AR_stream].append(AR)
             else:
-                ARdict[ARvob] = [AR]
+                ARdict[AR_stream] = [AR]
 
-    # DEV_HonFei/DEV_FACRI #
-    if HonFei_Facri != []:
+    if HonFei_Facri:  # check empty list 'the pythonic way'
         # cleartool deliver -preview -long -stream DEV_HonFei@\C919_FC_RC_HI_PVOB -to H157043_C919_FC_SW_Int_Voltron -target C919_FC_SW_Int@\C919_FC_RC_HI_PVOB
         com = Popen(r'cleartool lsactivity -fmt "%[crm_record_id]p %[headline]p\n" -in stream:DEV_HonFei@\C919_FC_RC_HI_PVOB')
         AllHonFeiAct, stderrdata = com.communicate()
@@ -68,87 +73,69 @@ def Analyze(freezeList, view, VOB, intView, project):
         FACRIList = []
         for hf_ar in HonFei_Facri:
             for hf in AllHonFeiAct:
-                if hf_ar in hf:
-                    HonFeiList.append(hf[:12])
+                if (hf_ar in hf) and (hf_ar not in HonFeiList):
+                    HonFeiList.append(hf[:13])
             for fa in AllFacriAct:
-                if hf_ar in fa:
-                    FACRIList.append(fa[:12])
-        if HonFeiList != []:
-            ARdict[r"stream:DEV_HonFei@\C919_FC_RC_HI_PVOB"] = []
-            for hf in HonFeiList:
-                ARdict[r"stream:DEV_HonFei@\C919_FC_RC_HI_PVOB"].append(hf)
-        if FACRIList != []:
-            ARdict[r"stream:DEV_FACRI@\C919_FC_RC_HI_PVOB"] = []
-            for fa in FACRIList:
-                ARdict[r"stream:DEV_FACRI@\C919_FC_RC_HI_PVOB"].append(fa)
-    # DEV_HonFei/DEV_FACRI #
+                if (hf_ar in fa) and (hf_ar not in FACRIList):
+                    FACRIList.append(fa[:13])
+        if HonFeiList:
+            ARdict["DEV_HonFei"] = HonFeiList
+        if FACRIList:
+            ARdict["DEV_FACRI"] = FACRIList
 
+    # only for control
     for d in ARdict:
-        print ARdict[d]
-    # go through all ARs and check, if latest versions have hyperlinks with r"/C919_FC_SW_Int/" (i.e are delivered)
+        print(ARdict[d])
+
     exit()
+
     # to be able to execute cleartool command and don't have to do it more then once
     os.chdir(r"M:\%s" % (view.get()))
-    OutputData = []
+    # Dictionary of all dependencies {'DEV_Phx':[AR, AR,...],'DEV_FACRI':[AR, AR,...]}
+    DependentARs = {}
 
+    # This approach is suitable only for non-Brno/India/HonFei/Facri streams
     for i in ARdict:
-        if i == "DEV_HonFei" or i == "Dev_FACRI":
+        if "DEV_HonFei" in i or "Dev_FACRI" in i:
             continue
-        SecondOrMore = False
         CtDeliverStrm = r"cleartool deliver -preview -stream %s@\%s -to %s -target %s@\%s -activities " % (i, PVOB, view.get(), intView.get(), PVOB)
-        for y in ARdict:
-            if y[0] == i:
-                if SecondOrMore is True:
-                    CtDeliverStrm += ","
-                else:
-                    CtDeliverStrm += " "
-                    SecondOrMore = True
-                CtDeliverStrm += r"activity:%s@\%s" % (y[1], PVOB)
-        # make deliver preview
-        print "Delivering preview of: %s" % (i)
+        for y in ARdict[i]:
+            CtDeliverStrm += r"activity:%s@\%s," % (y, PVOB)
+        # delete last comma
+        CtDeliverStrm = CtDeliverStrm.rstrip(',')
+
+        # make delivery preview
+        print("Delivering preview of: %s stream." % (i))
         com = Popen(CtDeliverStrm, stdout=PIPE, universal_newlines=True, creationflags=0x08000000)
-        stdoutdata, stderrdata = com.communicate()  # lines = files.split('N:')[:] # [:] makes mutable list from un-mutable tuple; see: ClearToolPy.py
-        print stdoutdata
+        depData, stderrdata = com.communicate()  # lines = files.split('N:')[:] # [:] makes mutable list from un-mutable tuple; see: ClearToolPy.py
+        print(depData)
 
         if stderrdata != None:
-            print "ERROR!!!"
-            print stderrdata
+            print("ERROR!!!")
+            print(stderrdata)
             break
-        if stdoutdata is None or "No activities to deliver" in stdoutdata: # stdoutdata==None
-            continue
 
-        while "C919" in stdoutdata:
-            AR = re.search(r'C919[A-Z]\d{8}', stdoutdata)
-            if AR is None or AR.group(0) in ARdict:
+        # process dependencies
+        while "C919" in depData:
+            AR = re.search(r'C919[A-Z]\d{8}', depData)
+            if AR is None:
                 break
             AR = AR.group(0)
-            print AR
-            OutputData.append(AR)
-            stdoutdata = stdoutdata.replace(AR, "")
-    print OutputData
-    print "DONE..."
+            if i not in DependentARs:
+                DependentARs[i] = [AR]
+            elif AR not in DependentARs[i]:
+                DependentARs[i].append(AR)
+            depData = depData.replace(AR, "")
 
-    # oznacit activity, u kterych neni co deliverovat (i Building AR mohou byt uz deliverovane), ty pak v dalsich krocich ignorovat
-    # dulezite! odfiltrovat nasledne dependent activity, ve kterych neni co deliverovat (tzn. ty AR, ktere se pak neobjevi v listingu)
-    # teprve pak vylistovat dependent activity uzivateli
-    # k nim pak vylistovat change set
-    # filtrovat podle komponenty SW_ - kodove komponenty - brat jako kod, textove zmeny v DOC
-    # dokumentacni zmeny prijmout automaticky
+    # Develop approach suitable for ALL streams incl. Brno/India/HonFei/Facri
+    # based on mechanical control of 'h-link'
+    # zkusit hledat delivered actvities podle 'h-link' (have hyperlinks with r"/C919_FC_SW_Int/")
+
+    # k dependent AR-kÅ¯m pak vylistovat change set
+    # filtrovat podle komponenty SW_ - kodove komponenty, textove zmeny v DOC
     # kodove zmeny vyhodit uzivateli
-    # od 'delivery' dal implementovat do Perl skriptu
-    '''
-    Finalize ActivityAnalyzer as standalone project:
-    - find dependent activities (try mechanical way by looking for 'h-link'),
-    - go through change-set,
-    - ignore document changes under DOC folder, highlight code changes under SW_ folders,
-    - test it on build machine.
-    Add functionality into deliver_activities.pl (part of EBT):
-    - find dependent activities (try mechanical way by looking for 'h-link'),
-    - go through change-set,
-    - add changes DOC folder, highlight code changes under SW_ folders,
-    - test it on build machine. 
-    '''
-    
+
+
 if __name__ == '__main__':
     form = Tkinter.Tk()
     form.minsize(width=735, height=365)
