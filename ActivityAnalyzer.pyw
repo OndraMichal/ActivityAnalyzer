@@ -1,4 +1,3 @@
-
 ######################################################
 ## This script doesn't affect any CC/CQ artifacts.
 ## It only delivers data to your fingertips very fast.
@@ -9,22 +8,38 @@
 ##
 ##
 ## Created by Ondrej MICHAL (H157043)
-## Updated: 10/2017
+## Updated: 04/2019
 ######################################################
 
 #########
-# Time spent on kaizen (charged ie. at work)
-# 24.5.2018 8.:15h
+## Time spent on kaizen (charged ie. at work)
+## 24.5.2018 8:15h
 #########
 
-import os
-import re
-import Tkinter
-import tkFileDialog
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+import os, re, sys
+from pip._internal import main as pipmain
 from subprocess import PIPE, Popen
-import openpyxl
+pkgLst = ["Tkinter", "tkFileDialog", "openpyxl"]
 
 # pylint: disable=C0103, C0301, C0326
+def install(pkgLst):
+    try:
+        pipmain(["install", "--upgrade", "pip"])
+    except:
+        print("\33[101m\nERROR: Unable to upgrade PIP package.\33[0m")
+    for pkg in pkgLst:
+        try:
+            import pkg
+        except:
+            try:
+                pipmain(["install", pkg])
+                import pkg
+            except:
+                print("\33[101m\nERROR: Unable to install {} package.\33[0m").format(pkg)
+                sys.exit()
+
 def FindView(inFileTxt):
     view = tkFileDialog.askdirectory(title="Choose view", initialdir="C:")
     inFileTxt.delete(0, 'end')
@@ -107,7 +122,7 @@ def Analyze(freezeList, view, VOB, intView, project):
         # make delivery preview
         print("Delivering preview of: %s stream." % (i))
         com = Popen(CtDeliverStrm, stdout=PIPE, universal_newlines=True, creationflags=0x08000000)
-        depData, stderrdata = com.communicate()  # lines = files.split('N:')[:] # [:] makes mutable list from un-mutable tuple; see: ClearToolPy.py
+        depData, stderrdata = com.communicate()
         print(depData)
 
         if stderrdata != None:
@@ -130,13 +145,16 @@ def Analyze(freezeList, view, VOB, intView, project):
     # Develop approach suitable for ALL streams incl. Brno/India/HonFei/Facri
     # based on mechanical control of 'h-link'
     # zkusit hledat delivered actvities podle 'h-link' (have hyperlinks with r"/C919_FC_SW_Int/")
+    #   diffbl could be solution. diffbl compares the contents of baselines or streams.
+    #   diffbl -act/ivities: Displays differences in terms of activities.
 
-    # k dependent AR-kÅ¯m pak vylistovat change set
+    # k dependent AR-kam pak vylistovat change set
     # filtrovat podle komponenty SW_ - kodove komponenty, textove zmeny v DOC
     # kodove zmeny vyhodit uzivateli
 
 
 if __name__ == '__main__':
+    install(pkgLst)
     form = Tkinter.Tk()
     form.minsize(width=735, height=365)
     form.maxsize(width=735, height=365)
